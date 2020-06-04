@@ -1,0 +1,11 @@
+README.md
+setup.py
+FootballApp.egg-info/PKG-INFO
+FootballApp.egg-info/SOURCES.txt
+FootballApp.egg-info/dependency_links.txt
+FootballApp.egg-info/requires.txt
+FootballApp.egg-info/top_level.txt
+esgi/__init__.py
+esgi/exo/FootballApp.py
+esgi/exo/FootballAppTest.py
+esgi/exo/__init__.py
