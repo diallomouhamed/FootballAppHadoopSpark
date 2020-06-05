@@ -9,9 +9,9 @@ import datetime
 
 class FootballApp():
 
-    def main(self): 
+    def main(self, data_path): 
         sparkSession = self.createSparkSession()
-        matchesDF = self.dataFrameFromCsv(sparkSession)
+        matchesDF = self.dataFrameFromCsv(sparkSession, data_path)
         matchesDF = self.clearDataFrame(matchesDF)
         matchesDF = self.addHomeGameColumn(matchesDF)
         self.createStatsFile(matchesDF)
@@ -23,8 +23,8 @@ class FootballApp():
                 .config('spark.ui.port','5050')
                 .getOrCreate())
 
-    def dataFrameFromCsv(self, sparkSession):
-        return sparkSession.read.csv('data/df_matches.csv', header=True, sep=",")
+    def dataFrameFromCsv(self, sparkSession, data_path):
+        return sparkSession.read.csv(data_path, header=True, sep=",")
 
     def clearDataFrame(self, matchesDF):
         matchesDF = self.renameColMatchAndCompet(matchesDF)
@@ -111,6 +111,6 @@ class FootballApp():
         matchesDF.write.partitionBy("annee").mode('overwrite').parquet('data/result.parquet/')
         matchesDF.write.partitionBy("mois").mode('append').parquet('data/result.parquet/')
 
-def main():
+def main(data_path):
     footballApp = FootballApp()
-    footballApp.main()
+    footballApp.main(data_path)
