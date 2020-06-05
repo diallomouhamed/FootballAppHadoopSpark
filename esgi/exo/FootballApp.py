@@ -2,15 +2,17 @@ from pyspark.sql import SparkSession
 import pyspark.sql.functions as F
 from pyspark.sql.functions import lit
 from pyspark.sql.functions import udf
-from pyspark.sql.types import StringType
+from pyspark.sql.types import StringType, BooleanType
+from pyspark.sql.window import Window
 
 import datetime
 
-def main():
-    spark = createSparkSession()
-    matchesDF = dataFrameFromCsv(spark)
+def main(): 
+    sparkSession = createSparkSession()
+    matchesDF = dataFrameFromCsv(sparkSession)
     matchesDF = clearDataFrame(matchesDF)
-    matchesDF.orderBy([matchesDF.penalty_france], ascending=[0,1]).show()
+    matchesDF = addHomeGameColumn(matchesDF)
+    createStatsFile(matchesDF)
 
 def createSparkSession():
     return (SparkSession.builder
@@ -18,8 +20,8 @@ def createSparkSession():
             .config('spark.ui.port','5050')
             .getOrCreate())
 
-def dataFrameFromCsv(spark):
-    return spark.read.csv('data/df_matches.csv', header=True, sep=",")
+def dataFrameFromCsv(sparkSession):
+    return sparkSession.read.csv('data/df_matches.csv', header=True, sep=",")
 
 def clearDataFrame(matchesDF):
     matchesDF = renameColMatchAndCompet(matchesDF)
@@ -67,3 +69,28 @@ def convertErrorToZero(date):
         return date
     except ValueError:
         return "0"
+
+def addHomeGameColumn(matchesDF):
+    define_domicile_udf = F.udf(lambda match: True if (match[:8] == "France -") else False, BooleanType())
+    matchesDF = matchesDF.withColumn('domicile', define_domicile_udf(matchesDF.match))
+    return matchesDF
+
+def createStatsFile(matchesDF):
+    statisticsDF = calculateStatistics(matchesDF)
+    statisticsDF.write.mode("overwrite").parquet("data/stats.parquet/")
+
+def calculateStatistics(matchesDF):
+    agg_stats = (matchesDF
+        .groupBy("adversaire")
+        .agg(
+            F.avg(matchesDF.score_france).alias("moy_score_france"),
+            F.avg(matchesDF.score_adversaire).alias("moy_score_adversaire"),
+            F.count(matchesDF.adversaire).alias("nb_match"),
+            (F.sum(matchesDF.domicile.cast("int")) * 100 /  F.count(matchesDF.adversaire)).alias("pourcent_match_domicile"),
+            F.count(matchesDF.competition.cast("string").contains("Coupe du monde")).alias("nb_match_cdm"),     # A corriger
+            F.max(matchesDF.penalty_france.cast("int")).alias("max_penalty"),   # A corriger
+            ( F.sum(matchesDF.penalty_france.cast("int")) - F.sum(matchesDF.penalty_adversaire.cast("int")) ).alias("nb_pen_fr_moins_pen_advrs")    # A corriger
+        )
+    )
+
+    return agg_stats
