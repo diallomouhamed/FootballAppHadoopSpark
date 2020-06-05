@@ -81,26 +81,30 @@ def createStatsFile(matchesDF):
     statisticsDF.write.mode("overwrite").parquet("data/stats.parquet/")
 
 def calculateStatistics(matchesDF):
-    # print("Angleterre : ",matchesDF.where(matchesDF.adversaire == "Angleterre").count())
-    # print("Angleterre : ",matchesDF.where( (matchesDF.adversaire == "Angleterre") & (matchesDF.competition.contains("Coupe du monde")) ).count())
-    # matchesDF.show()
+    cdm_cond = lambda cond: F.sum(F.when(cond, 1).otherwise(0))
+
     agg_stats = (matchesDF
         .groupBy("adversaire")
         .agg(
-            F.avg(matchesDF.score_france).alias("moy_sc_fr"),
-            F.avg(matchesDF.score_adversaire).alias("moy_sc_adv"),
-            F.count(matchesDF.adversaire).alias("nb_m"),
-            (F.sum(matchesDF.domicile.cast("int")) * 100 /  F.count(matchesDF.adversaire)).alias("prct_dom"),
-            F.count(matchesDF.competition.cast("string").contains("Coupe du monde")).alias("nb_cdm"),     # A réparer
-            F.max(matchesDF.penalty_france.cast("int")).alias("max_penalty"),   # A réparer
-            ( F.sum(matchesDF.penalty_france.cast("int")) - F.sum(matchesDF.penalty_adversaire.cast("int")) ).alias("nb_pen_moins")    # A réparer
+
+            F.avg(matchesDF.score_france).alias("moy_score_france"),
+            F.avg(matchesDF.score_adversaire).alias("moy_score_adversaire"),
+            F.count(matchesDF.adversaire).alias("nb_match"),
+            (F.sum(matchesDF.domicile.cast("int")) * 100 /  F.count(matchesDF.adversaire)).alias("pourcent_match_domicile"),
+            cdm_cond(F.col("competition").contains("Coupe du monde")).alias("nb_match_cdm"),
+            F.max(matchesDF.penalty_france.cast("int")).alias("max_france_penalty"),
+            ( F.sum(matchesDF.penalty_france.cast("int")) - F.sum(matchesDF.penalty_adversaire.cast("int")) ).alias("nb_pen_fr_moins_pen_advrs")
         )
     )
 
-    # agg_stats.show()
     return agg_stats
 
 def createJoinFile(sparkSession, matchesDF):
     statisticsDF = sparkSession.read.parquet("data/stats.parquet/")
-    matchesDF = matchesDF.join(statisticsDF, matchesDF.adversaire == statisticsDF.adversaire, "full_outer")
-    matchesDF.show()
+    matchesDF = matchesDF.join(statisticsDF, "adversaire")
+
+    matchesDF = matchesDF.withColumn("annee", F.year(matchesDF.date))
+    matchesDF = matchesDF.withColumn("mois", F.month(matchesDF.date))
+
+    matchesDF.write.partitionBy("annee").mode('overwrite').parquet('data/result.parquet/')
+    matchesDF.write.partitionBy("mois").mode('append').parquet('data/result.parquet/')

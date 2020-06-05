@@ -13,6 +13,7 @@ def main():
     matchesDF = clearDataFrame(matchesDF)
     matchesDF = addHomeGameColumn(matchesDF)
     createStatsFile(matchesDF)
+    createJoinFile(sparkSession, matchesDF)
 
 def createSparkSession():
     return (SparkSession.builder
@@ -80,17 +81,30 @@ def createStatsFile(matchesDF):
     statisticsDF.write.mode("overwrite").parquet("data/stats.parquet/")
 
 def calculateStatistics(matchesDF):
+    cdm_cond = lambda cond: F.sum(F.when(cond, 1).otherwise(0))
+
     agg_stats = (matchesDF
         .groupBy("adversaire")
         .agg(
+
             F.avg(matchesDF.score_france).alias("moy_score_france"),
             F.avg(matchesDF.score_adversaire).alias("moy_score_adversaire"),
             F.count(matchesDF.adversaire).alias("nb_match"),
             (F.sum(matchesDF.domicile.cast("int")) * 100 /  F.count(matchesDF.adversaire)).alias("pourcent_match_domicile"),
-            F.count(matchesDF.competition.cast("string").contains("Coupe du monde")).alias("nb_match_cdm"),     # A corriger
-            F.max(matchesDF.penalty_france.cast("int")).alias("max_penalty"),   # A corriger
-            ( F.sum(matchesDF.penalty_france.cast("int")) - F.sum(matchesDF.penalty_adversaire.cast("int")) ).alias("nb_pen_fr_moins_pen_advrs")    # A corriger
+            cdm_cond(F.col("competition").contains("Coupe du monde")).alias("nb_match_cdm"),
+            F.max(matchesDF.penalty_france.cast("int")).alias("max_france_penalty"),
+            ( F.sum(matchesDF.penalty_france.cast("int")) - F.sum(matchesDF.penalty_adversaire.cast("int")) ).alias("nb_pen_fr_moins_pen_advrs")
         )
     )
 
     return agg_stats
+
+def createJoinFile(sparkSession, matchesDF):
+    statisticsDF = sparkSession.read.parquet("data/stats.parquet/")
+    matchesDF = matchesDF.join(statisticsDF, "adversaire")
+
+    matchesDF = matchesDF.withColumn("annee", F.year(matchesDF.date))
+    matchesDF = matchesDF.withColumn("mois", F.month(matchesDF.date))
+
+    matchesDF.write.partitionBy("annee").mode('overwrite').parquet('data/result.parquet/')
+    matchesDF.write.partitionBy("mois").mode('append').parquet('data/result.parquet/')
